@@ -3,8 +3,8 @@ from time import sleep
 
 # Define robot with left and right motors
 robot = Robot(
-    left=Motor(forward=23, backward=24, enable=18, pwm=True),
-    right=Motor(forward=5, backward=25, enable=19, pwm=True)
+    left=Motor(forward=24, backward=23, enable=18, pwm=True),
+    right=Motor(forward=25, backward=5, enable=19, pwm=True)
 )
 
 try:
