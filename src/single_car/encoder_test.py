@@ -3,7 +3,7 @@ from time import sleep, time
 import threading
 
 # ======= USER SETTINGS (edit these to match your hardware) =======
-ENCODER_PIN = 17          # GPIO17 (BCM)
+ENCODER_PIN = 27          # GPIO17 GPIO27 (BCM)
 PULSES_PER_REV = 20       # <-- change to your encoder's counts-per-rev (CPR)
 GEAR_RATIO = 1.0          # <-- if encoder is on motor shaft and wheel is geared, set gear ratio
 PRINT_INTERVAL = 1.0      # seconds between telemetry prints
@@ -88,3 +88,4 @@ except KeyboardInterrupt:
 finally:
     set_direction(0)
     robot.stop()
+a
