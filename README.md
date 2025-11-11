@@ -14,10 +14,12 @@ sudo systemctl stop drive_joystick.service
 sudo systemctl disable drive_joystick.service
 sudo systemctl mask drive_joystick.service
 
+position-instruction.service
+
 #### Reload systemd units just in case
 sudo systemctl daemon-reload
 
 pigpiod
 
-TODO
-- Fix position_instruction.py
+#### Testing wheels and encoders
+python src/single_car/drive_forward_distance.py
