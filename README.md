@@ -28,3 +28,4 @@ python src/single_car/drive_forward_distance.py
 python3 -m uvicorn src.car_server.server:app --host 0.0.0.0 --port 8000
 #### Need to know indivdual ip addresses of cars
 Plug api addresses into web browser
+hostname -I
