@@ -21,6 +21,9 @@ is_moving = False
 last_pwm = {"left": 0.0, "right": 0.0}
 pwm_lock = threading.Lock()
 
+# Global timeout constant (10 seconds)
+GLOBAL_TIMEOUT_S = 10.0
+
 
 # ----------------------------
 # MOVE REQUEST MODEL
@@ -37,7 +40,7 @@ class MoveRequest(BaseModel):
 def drive_to_pose(x_goal, y_goal, psi_goal_deg):
     """
     A thread-safe wrapper around your existing drive algorithm.
-    Runs until the robot reaches the goal OR stop_event is set.
+    Runs until the robot reaches the goal OR stop_event is set OR 10 second timeout.
     """
 
     global is_moving, last_pwm
@@ -106,6 +109,7 @@ def drive_to_pose(x_goal, y_goal, psi_goal_deg):
         last_print = start_time
 
         print(f"Starting motion to x={goal_x:.3f}, y={goal_y:.3f}, psi={psi_goal_deg:.1f}°")
+        print(f"⏱️ Global timeout: {GLOBAL_TIMEOUT_S:.1f} seconds")
 
         # ----------------------
         # (2) Main control loop
@@ -113,6 +117,12 @@ def drive_to_pose(x_goal, y_goal, psi_goal_deg):
         while not stop_event.is_set():
 
             now = time.time()
+
+            # *** CHECK GLOBAL TIMEOUT (10 SECONDS) ***
+            if (now - start_time) > GLOBAL_TIMEOUT_S:
+                robot.stop()
+                print(f"⏱️ GLOBAL TIMEOUT: {GLOBAL_TIMEOUT_S} seconds reached, stopping robot")
+                break
 
             # ----------------------
             # Encoder update with DIRECTION INFERENCE
@@ -173,9 +183,9 @@ def drive_to_pose(x_goal, y_goal, psi_goal_deg):
                 print(f"Goal reached! Final: x={x:.3f}, y={y:.3f}, th={math.degrees(th):.1f}°")
                 break
 
-            # Timeout check
+            # Timeout check (backup - global timeout above is primary)
             if (now - start_time) > MAX_RUNTIME_S:
-                print("Timeout reached, stopping.")
+                print("Backup timeout reached, stopping.")
                 break
 
             # ----------------------
@@ -220,7 +230,8 @@ def drive_to_pose(x_goal, y_goal, psi_goal_deg):
 
             # Telemetry
             if (now - last_print) >= PRINT_INTERVAL:
-                print(f"x={x:5.3f} m, y={y:5.3f} m, th={math.degrees(th):6.2f}° | "
+                elapsed = now - start_time
+                print(f"[{elapsed:.1f}s] x={x:5.3f} m, y={y:5.3f} m, th={math.degrees(th):6.2f}° | "
                       f"ρ={rho:4.2f} m, α={math.degrees(alpha):6.2f}°, β={math.degrees(beta):6.2f}° | "
                       f"pwmL={pwmL:+.2f}, pwmR={pwmR:+.2f}")
                 last_print = now
@@ -247,7 +258,8 @@ def drive_to_pose(x_goal, y_goal, psi_goal_deg):
         with pwm_lock:
             last_pwm = {"left": 0.0, "right": 0.0}
         
-        print("Motion thread finished.")
+        elapsed_total = time.time() - start_time
+        print(f"Motion thread finished. Total time: {elapsed_total:.2f}s")
 
 
 # ================================================================
@@ -273,7 +285,7 @@ def move(req: MoveRequest):
         )
         motion_thread.start()
 
-    return {"status": "started", "goal": req.dict()}
+    return {"status": "started", "goal": req.dict(), "timeout_seconds": GLOBAL_TIMEOUT_S}
 
 
 @app.post("/stop")
