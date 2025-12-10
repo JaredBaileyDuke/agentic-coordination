@@ -63,3 +63,7 @@ sudo systemctl daemon-reload
 sudo systemctl start car_server.service
 
 ## Check that service is running
+sudo systemctl status car_server.service
+
+## Enable on boot
+sudo systemctl enable car_server.service
