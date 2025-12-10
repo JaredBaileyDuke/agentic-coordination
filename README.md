@@ -29,3 +29,37 @@ python3 -m uvicorn src.car_server.server:app --host 0.0.0.0 --port 8000
 #### Need to know indivdual ip addresses of cars
 Plug api addresses into web browser
 hostname -I
+
+
+# Create a service
+sudo nano /etc/systemd/system/car_server.service
+
+## Here
+[Unit]
+Description=FastAPI Car Server
+After=network.target
+
+[Service]
+Type=simple
+User=admin
+WorkingDirectory=/home/admin/agentic-coordination
+ExecStart=/usr/bin/python3 -m uvicorn src.car_server.server:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=3
+
+# OPTIONAL: environment variables if you need them
+# Environment="PYTHONUNBUFFERED=1"
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+
+## Reload systemd
+sudo systemctl daemon-reload
+
+## Start service now
+sudo systemctl start car_server.service
+
+## Check that service is running
