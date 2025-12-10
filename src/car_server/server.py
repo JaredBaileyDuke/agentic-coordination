@@ -5,9 +5,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 # === Import your robot controller functions ===
-# We wrap your long "main()" into a callable so the thread can run it safely.
 from src.single_car.position_instruction import robot, SimpleEncoder, wrap_pi, pwm_from_velocity
-import sys
 
 app = FastAPI()
 
@@ -18,6 +16,10 @@ motion_thread = None
 stop_event = threading.Event()
 state_lock = threading.Lock()
 is_moving = False
+
+# Store last commanded PWM globally so drive_to_pose can access it
+last_pwm = {"left": 0.0, "right": 0.0}
+pwm_lock = threading.Lock()
 
 
 # ----------------------------
@@ -38,11 +40,14 @@ def drive_to_pose(x_goal, y_goal, psi_goal_deg):
     Runs until the robot reaches the goal OR stop_event is set.
     """
 
-    global is_moving
+    global is_moving, last_pwm
 
     # Mark running
     with state_lock:
         is_moving = True
+
+    encL = None
+    encR = None
 
     try:
         # ----------------------
@@ -64,6 +69,7 @@ def drive_to_pose(x_goal, y_goal, psi_goal_deg):
         GEAR_RATIO = 1.0
         WHEEL_BASE_M = 0.135
         DT = 0.02
+        PRINT_INTERVAL = 0.5
 
         circL = math.pi * WHEEL_DIAMETER_L_M
         circR = math.pi * WHEEL_DIAMETER_R_M
@@ -83,29 +89,33 @@ def drive_to_pose(x_goal, y_goal, psi_goal_deg):
         K_ALPHA = 2.70
         K_BETA = -0.60
 
-        RHO_TOL_M = 0.02
-        TH_TOL_DEG = 3.0
+        RHO_TOL_M = 0.08
+        TH_TOL_DEG = 8.0
+        MAX_RUNTIME_S = 60.0
+
+        # Reset last PWM
+        with pwm_lock:
+            last_pwm = {"left": 0.0, "right": 0.0}
+
+        # Give encoders time to initialize
+        time.sleep(0.2)
+        encL.reset()
+        encR.reset()
 
         start_time = time.time()
+        last_print = start_time
+
+        print(f"Starting motion to x={goal_x:.3f}, y={goal_y:.3f}, psi={psi_goal_deg:.1f}°")
 
         # ----------------------
         # (2) Main control loop
         # ----------------------
         while not stop_event.is_set():
 
-            # ----------------------
-            # Goal test
-            # ----------------------
-            dx = goal_x - x
-            dy = goal_y - y
-            rho = math.hypot(dx, dy)
-            th_err = abs(math.degrees(wrap_pi(goal_th - th)))
-
-            if rho <= RHO_TOL_M and th_err <= TH_TOL_DEG:
-                break
+            now = time.time()
 
             # ----------------------
-            # Encoder update
+            # Encoder update with DIRECTION INFERENCE
             # ----------------------
             currL = encL.read()
             currR = encR.read()
@@ -117,8 +127,20 @@ def drive_to_pose(x_goal, y_goal, psi_goal_deg):
             dL = dL_ticks / tpmL
             dR = dR_ticks / tpmR
 
-            ds = 0.5 * (dR + dL)
-            dth = (dR - dL) / WHEEL_BASE_M
+            # *** CRITICAL FIX: Infer direction from last commanded PWM ***
+            with pwm_lock:
+                pwmL_cmd = last_pwm["left"]
+                pwmR_cmd = last_pwm["right"]
+            
+            signL = 1.0 if pwmL_cmd >= 0 else -1.0
+            signR = 1.0 if pwmR_cmd >= 0 else -1.0
+
+            dL_signed = dL * signL
+            dR_signed = dR * signR
+
+            # Odometry update
+            ds = 0.5 * (dR_signed + dL_signed)
+            dth = (dR_signed - dL_signed) / WHEEL_BASE_M
 
             if abs(dth) < 1e-6:
                 x += ds * math.cos(th)
@@ -133,14 +155,41 @@ def drive_to_pose(x_goal, y_goal, psi_goal_deg):
             th = wrap_pi(th)
 
             # ----------------------
-            # Controller
+            # Compute errors
             # ----------------------
+            dx = goal_x - x
+            dy = goal_y - y
+            rho = math.hypot(dx, dy)
             path_heading = math.atan2(dy, dx)
             alpha = wrap_pi(path_heading - th)
             beta = wrap_pi(goal_th - th - alpha)
+            
+            th_err = abs(math.degrees(wrap_pi(goal_th - th)))
 
+            # ----------------------
+            # Goal test
+            # ----------------------
+            if rho <= RHO_TOL_M and th_err <= TH_TOL_DEG:
+                print(f"Goal reached! Final: x={x:.3f}, y={y:.3f}, th={math.degrees(th):.1f}°")
+                break
+
+            # Timeout check
+            if (now - start_time) > MAX_RUNTIME_S:
+                print("Timeout reached, stopping.")
+                break
+
+            # ----------------------
+            # Controller
+            # ----------------------
             v = K_RHO * rho
             w = K_ALPHA * alpha + K_BETA * beta
+
+            # Scale down when close
+            v_scale = 1.0
+            if rho < 0.15:
+                v_scale = 0.6
+            if rho < 0.07:
+                v_scale = 0.45
 
             vL = v - (WHEEL_BASE_M * 0.5) * w
             vR = v + (WHEEL_BASE_M * 0.5) * w
@@ -149,7 +198,7 @@ def drive_to_pose(x_goal, y_goal, psi_goal_deg):
             vL /= vmax
             vR /= vmax
 
-            pwmL, pwmR = pwm_from_velocity(vL, vR, v_scale=1.0)
+            pwmL, pwmR = pwm_from_velocity(vL, vR, v_scale=v_scale)
 
             # ----------------------
             # Apply motor commands
@@ -164,18 +213,41 @@ def drive_to_pose(x_goal, y_goal, psi_goal_deg):
             else:
                 robot.right_motor.backward(abs(pwmR))
 
+            # Store commanded PWM for next iteration's direction inference
+            with pwm_lock:
+                last_pwm["left"] = pwmL
+                last_pwm["right"] = pwmR
+
+            # Telemetry
+            if (now - last_print) >= PRINT_INTERVAL:
+                print(f"x={x:5.3f} m, y={y:5.3f} m, th={math.degrees(th):6.2f}° | "
+                      f"ρ={rho:4.2f} m, α={math.degrees(alpha):6.2f}°, β={math.degrees(beta):6.2f}° | "
+                      f"pwmL={pwmL:+.2f}, pwmR={pwmR:+.2f}")
+                last_print = now
+
             time.sleep(DT)
 
-        # Stop when finished OR canceled
-        robot.stop()
-
-        encL.close()
-        encR.close()
+    except Exception as e:
+        print(f"Error in drive_to_pose: {e}")
+        import traceback
+        traceback.print_exc()
 
     finally:
+        # Always stop motors and clean up
+        robot.stop()
+        
+        if encL is not None:
+            encL.close()
+        if encR is not None:
+            encR.close()
+        
         with state_lock:
             is_moving = False
-        robot.stop()
+        
+        with pwm_lock:
+            last_pwm = {"left": 0.0, "right": 0.0}
+        
+        print("Motion thread finished.")
 
 
 # ================================================================
@@ -188,7 +260,7 @@ def move(req: MoveRequest):
 
     with state_lock:
         if is_moving:
-            raise HTTPException(400, "Car is already moving.")
+            raise HTTPException(400, "Car is already moving. Call /stop first.")
 
         # Clear any old stop signal
         stop_event.clear()
@@ -208,9 +280,9 @@ def move(req: MoveRequest):
 def stop():
     global stop_event
 
+    print("Stop requested via API")
     stop_event.set()   # Tell drive loop to stop
-
-    robot.stop()
+    robot.stop()       # Immediately stop motors
 
     return {"status": "stopping"}
 
@@ -219,3 +291,11 @@ def stop():
 def status():
     with state_lock:
         return {"moving": is_moving}
+
+
+@app.on_event("shutdown")
+def shutdown_event():
+    """Ensure motors stop when server shuts down"""
+    print("Server shutting down, stopping motors...")
+    stop_event.set()
+    robot.stop()

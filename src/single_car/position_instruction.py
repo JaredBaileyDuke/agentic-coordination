@@ -55,8 +55,9 @@ RHO_TOL_M = 0.08                 # position tolerance for Phase 1 (meters)
 TH_TOL_DEG = 8.0                 # heading tolerance for Phase 2 (degrees)
 
 # Safety/timeouts
-MAX_RUNTIME_PHASE1_S = 45.0      # bailout for Phase 1
-MAX_RUNTIME_PHASE2_S = 15.0      # bailout for Phase 2
+MAX_RUNTIME_PHASE1_S = 8.0      # bailout for Phase 1
+MAX_RUNTIME_PHASE2_S = 8.0      # bailout for Phase 2
+GLOBAL_TIMEOUT_S = 10.0          # global timeout for entire mission (stops after 10 seconds)
 
 # Optional trims to equalize sides
 TRIM_L = 0.9200
@@ -148,7 +149,7 @@ def command_motors(pwmL, pwmR):
         robot.right_motor.backward(abs(pwmR))
 
 
-def phase1_navigate_to_position(goal_x, goal_y, encL, encR, tpmL, tpmR):
+def phase1_navigate_to_position(goal_x, goal_y, encL, encR, tpmL, tpmR, global_start):
     """
     PHASE 1: Navigate to (x, y) position using position controller.
     Returns final pose (x, y, th) when position is reached.
@@ -183,6 +184,12 @@ def phase1_navigate_to_position(goal_x, goal_y, encL, encR, tpmL, tpmR):
     
     while True:
         now = time()
+        
+        # Check global timeout
+        if (now - global_start) > GLOBAL_TIMEOUT_S:
+            robot.stop()
+            print(f"\n⏱️ GLOBAL TIMEOUT: 10 seconds reached, stopping robot")
+            return x, y, th
         
         # Read encoders and update odometry
         currL, currR = encL.read(), encR.read()
@@ -266,7 +273,7 @@ def phase1_navigate_to_position(goal_x, goal_y, encL, encR, tpmL, tpmR):
     return x, y, th
 
 
-def phase2_rotate_to_heading(goal_th, x, y, th, encL, encR, tpmL, tpmR):
+def phase2_rotate_to_heading(goal_th, x, y, th, encL, encR, tpmL, tpmR, global_start):
     """
     PHASE 2: Rotate in place to desired heading.
     Returns final pose (x, y, th) when heading is reached.
@@ -292,6 +299,12 @@ def phase2_rotate_to_heading(goal_th, x, y, th, encL, encR, tpmL, tpmR):
     
     while True:
         now = time()
+        
+        # Check global timeout
+        if (now - global_start) > GLOBAL_TIMEOUT_S:
+            robot.stop()
+            print(f"\n⏱️ GLOBAL TIMEOUT: 10 seconds reached, stopping robot")
+            return x, y, th
         
         # Read encoders and update odometry
         currL, currR = encL.read(), encR.read()
@@ -404,6 +417,7 @@ def main():
     print(f"LEFT : D={WHEEL_DIAMETER_L_M*1000:.2f} mm | ticks/m={tpmL:.2f}")
     print(f"RIGHT: D={WHEEL_DIAMETER_R_M*1000:.2f} mm | ticks/m={tpmR:.2f}")
     print(f"Wheel base: {WHEEL_BASE_M:.3f} m")
+    print(f"⏱️ Global timeout: {GLOBAL_TIMEOUT_S:.1f} seconds")
     
     # Reset encoders
     sleep(0.2)
@@ -414,17 +428,29 @@ def main():
     
     try:
         # PHASE 1: Navigate to position
-        x, y, th = phase1_navigate_to_position(goal_x, goal_y, encL, encR, tpmL, tpmR)
+        x, y, th = phase1_navigate_to_position(goal_x, goal_y, encL, encR, tpmL, tpmR, overall_start)
+        
+        # Check if we timed out in phase 1
+        if (time() - overall_start) > GLOBAL_TIMEOUT_S:
+            print(f"\n=== Mission Stopped (Global Timeout) ===")
+            print(f"Final pose: x={x:.3f} m, y={y:.3f} m, θ={math.degrees(th):.1f}°")
+            print(f"Total time: {time()-overall_start:.2f}s")
+            return
         
         # PHASE 2: Rotate to heading
-        x, y, th = phase2_rotate_to_heading(goal_th, x, y, th, encL, encR, tpmL, tpmR)
+        x, y, th = phase2_rotate_to_heading(goal_th, x, y, th, encL, encR, tpmL, tpmR, overall_start)
         
         # Final report
-        print(f"\n=== Mission Complete ===")
+        elapsed = time() - overall_start
+        if elapsed > GLOBAL_TIMEOUT_S:
+            print(f"\n=== Mission Stopped (Global Timeout) ===")
+        else:
+            print(f"\n=== Mission Complete ===")
+        
         print(f"Final pose: x={x:.3f} m, y={y:.3f} m, θ={math.degrees(th):.1f}°")
         print(f"Goal pose:  x={goal_x:.3f} m, y={goal_y:.3f} m, θ={goal_th_deg:.1f}°")
         print(f"Errors: Δx={goal_x-x:.3f} m, Δy={goal_y-y:.3f} m, Δθ={math.degrees(wrap_pi(goal_th-th)):.1f}°")
-        print(f"Total time: {time()-overall_start:.2f}s")
+        print(f"Total time: {elapsed:.2f}s")
         
     except KeyboardInterrupt:
         print("\nKeyboardInterrupt: stopping...")
