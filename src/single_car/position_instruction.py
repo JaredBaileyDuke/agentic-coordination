@@ -160,24 +160,26 @@ def phase1_navigate_to_position(goal_x, goal_y, encL, encR, tpmL, tpmR, global_s
     # Initialize pose
     x, y, th = 0.0, 0.0, 0.0
     lastL, lastR = 0, 0
-    last_pwm = (0.0, 0.0)
     
-    # Initial kick toward goal
+    # Calculate initial direction to goal
     vec0 = math.atan2(goal_y - y, goal_x - x)
     heading_err0 = wrap_pi(vec0 - th)
     
-    if abs(heading_err0) > math.radians(30):
-        left_pwm = -KICK_SPEED if heading_err0 > 0 else KICK_SPEED
-        right_pwm = KICK_SPEED if heading_err0 > 0 else -KICK_SPEED
-        robot.left_motor.value = left_pwm
-        robot.right_motor.value = right_pwm
-        sleep(KICK_TIME * 0.7)
-        robot.stop()
+    # Decide initial direction: forward if goal ahead, backward if behind
+    if abs(heading_err0) < math.radians(90):
+        # Goal is ahead - kick forward
+        robot.left_motor.forward(KICK_SPEED)
+        robot.right_motor.forward(KICK_SPEED)
+        last_pwm = (KICK_SPEED, KICK_SPEED)  # Set initial PWM direction
+    else:
+        # Goal is behind - kick backward
+        robot.left_motor.backward(KICK_SPEED)
+        robot.right_motor.backward(KICK_SPEED)
+        last_pwm = (-KICK_SPEED, -KICK_SPEED)  # Set initial PWM direction
     
-    robot.left_motor.forward(KICK_SPEED)
-    robot.right_motor.forward(KICK_SPEED)
     sleep(KICK_TIME)
     robot.stop()
+    sleep(0.1)
     
     start = time()
     last_print = start
@@ -221,9 +223,18 @@ def phase1_navigate_to_position(goal_x, goal_y, encL, encR, tpmL, tpmR, global_s
             print(f"Position reached: x={x:.3f} m, y={y:.3f} m, th={math.degrees(th):.1f}°")
             break
         
-        # Position controller (no beta term)
-        v = K_RHO_P1 * rho
-        w = K_ALPHA_P1 * alpha
+        # **KEY FIX**: Decide whether to drive forward or backward
+        # If goal is more than 90° away, drive backward instead
+        if abs(alpha) > math.radians(90):
+            # Drive backward - flip the direction
+            v = -K_RHO_P1 * rho  # Negative v for backward
+            # Adjust alpha for backward driving (flip the steering direction)
+            alpha_adjusted = wrap_pi(alpha + math.pi)
+            w = K_ALPHA_P1 * alpha_adjusted
+        else:
+            # Drive forward normally
+            v = K_RHO_P1 * rho
+            w = K_ALPHA_P1 * alpha
         
         # Scale down when close
         v_scale = 1.0
@@ -256,9 +267,10 @@ def phase1_navigate_to_position(goal_x, goal_y, encL, encR, tpmL, tpmR, global_s
         
         # Telemetry
         if (now - last_print) >= PRINT_INTERVAL:
+            direction = "BWD" if v < 0 else "FWD"
             print(f"x={x:5.3f} m, y={y:5.3f} m, th={math.degrees(th):6.2f}° | "
                   f"ρ={rho:4.2f} m, α={math.degrees(alpha):6.2f}° | "
-                  f"pwmL={pwmL:+.2f}, pwmR={pwmR:+.2f}")
+                  f"{direction} pwmL={pwmL:+.2f}, pwmR={pwmR:+.2f}")
             last_print = now
         
         # Timeout
