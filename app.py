@@ -80,7 +80,7 @@ with colMid:
 if car_choice == "Car 1":
     set_base_url("http://172.28.163.77:8000")
 else:
-    set_base_url("http://172.28.163.88:8000")
+    set_base_url("http://10.194.130.102:8000")
 
 st.markdown("---")
 
@@ -94,8 +94,8 @@ pad_left, col_left, col_right, pad_right = st.columns([1, 2, 2, 1])
 with col_left:
     st.subheader("🎯 Set Goal Position")
 
-    x = st.slider("X Position (meters)", 0.0, 1.0, 0.0, 0.01)
-    y = st.slider("Y Position (meters)", 0.0, 1.0, 0.0, 0.01)
+    x = st.slider("X Position (meters)", -1.0, 1.0, 0.0, 0.01)
+    y = st.slider("Y Position (meters)", -1.0, 1.0, 0.0, 0.01)
     psi = st.slider("Psi (Yaw Degrees)", 0, 359, 0)
 
 
