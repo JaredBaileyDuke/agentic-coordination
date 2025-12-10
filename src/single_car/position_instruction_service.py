@@ -37,9 +37,9 @@ PRINT_INTERVAL = 0.25            # telemetry print period (s)
 
 # Motion scaling: map (v, w) -> wheel PWM.
 # These are *PWM limits*, not m/s or rad/s. We'll scale "virtual" velocities into [-1, 1].
-MAX_PWM = 0.65                   # hard cap for |wheel PWM|
-MIN_PWM = 0.12                   # deadband helper (helps overcome static friction)
-CREEP_PWM = 0.25                 # used when near goal
+MAX_PWM = 0.90                   # hard cap for |wheel PWM|
+MIN_PWM = 0.40                   # deadband helper (helps overcome static friction)
+CREEP_PWM = 0.40                 # used when near goal
 KICK_SPEED = 0.80                # brief higher speed “kick” to break static friction
 KICK_TIME  = 0.12                # seconds
 
