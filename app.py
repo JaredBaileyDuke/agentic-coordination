@@ -80,7 +80,7 @@ with colMid:
 if car_choice == "Car 1":
     set_base_url("http://172.28.163.77:8000")
 else:
-    set_base_url("http://10.194.130.102:8000")
+    set_base_url("http://172.28.68.179:8000")
 
 st.markdown("---")
 
