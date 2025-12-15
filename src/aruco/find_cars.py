@@ -23,7 +23,7 @@ PRINT_PERIOD = 1.0 / PRINT_RATE_HZ
 # ================================
 # CAMERA SETUP
 # ================================
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(1)
 if not cap.isOpened():
     raise Exception("Could not open webcam")
 
